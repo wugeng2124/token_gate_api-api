@@ -1,5 +1,4 @@
-# === coupon_gateway.py (Final Version with Max Uses Fix) ===
-
+# === coupon_gateway.py (FINAL FIXED VERSION) ===
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import sqlite3, os
@@ -8,7 +7,7 @@ app = Flask(__name__)
 CORS(app)
 
 DB_FILE = "coupon.db"
-ADMIN_PASS = os.getenv("COUPON_ADMIN_PASS", "super2121")  # from .env or default
+ADMIN_PASS = os.getenv("COUPON_ADMIN_PASS", "super2121")  # from .env
 
 # Initialize DB
 def init_db():
@@ -39,11 +38,15 @@ def validate_coupon():
     if used >= max_uses:
         return jsonify({"success": False, "message": "This code has been fully used."})
 
-    # increment used
     c.execute("UPDATE coupons SET used = used + 1 WHERE code = ?", (code,))
     conn.commit()
     remaining = max_uses - (used + 1)
-    return jsonify({"success": True, "remaining": remaining, "max_uses": max_uses})
+
+    return jsonify({
+        "success": True,
+        "remaining": remaining,
+        "max_uses": max_uses
+    })
 
 @app.route("/coupon_admin", methods=["GET"])
 def coupon_admin():
@@ -75,7 +78,6 @@ def coupon_api():
         if not code:
             return jsonify({"error": "Missing code"}), 400
 
-        # Replace mode: reset usage
         c.execute("REPLACE INTO coupons (code, max_uses, used) VALUES (?, ?, 0)", (code, max_uses))
         conn.commit()
         return jsonify({"message": f"Code {code} added/reset."})
