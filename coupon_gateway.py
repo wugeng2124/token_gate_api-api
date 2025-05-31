@@ -1,28 +1,24 @@
-# === coupon_gateway.py ===
-import os
-import sqlite3
-from flask import Flask, request, jsonify, render_template_string, redirect
-from flask_cors import CORS
-from dotenv import load_dotenv
+# === coupon_gateway.py (Updated with Replace and Delete Modes) ===
 
-load_dotenv()
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import sqlite3, os
 
 app = Flask(__name__)
 CORS(app)
 
-DB_FILE = "coupons.db"
+DB_FILE = "coupon.db"
+ADMIN_PASS = os.getenv("COUPON_ADMIN_PASS", "super2121")  # set in .env
 
+# Initialize DB
 def init_db():
     conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS coupons (
-            code TEXT PRIMARY KEY,
-            max_uses INTEGER,
-            used INTEGER DEFAULT 0
-        )
-    """)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS coupons (
+        code TEXT PRIMARY KEY,
+        max_uses INTEGER,
+        used INTEGER DEFAULT 0
+    )''')
     conn.commit()
     conn.close()
 
@@ -31,66 +27,65 @@ init_db()
 @app.route("/token_gate_api", methods=["POST"])
 def validate_coupon():
     data = request.get_json()
-    code = data.get("coupon", "").strip().upper()
+    code = data.get("coupon", "").strip()
 
     conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT max_uses, used FROM coupons WHERE code = ?", (code,))
-    row = cursor.fetchone()
+    c = conn.cursor()
+    c.execute("SELECT max_uses, used FROM coupons WHERE code = ?", (code,))
+    row = c.fetchone()
+    if not row:
+        return jsonify({"success": False, "message": "Invalid code."})
+    max_uses, used = row
+    if used >= max_uses:
+        return jsonify({"success": False, "message": "This code has been fully used."})
 
-    if row:
-        max_uses, used = row
-        if used < max_uses:
-            cursor.execute("UPDATE coupons SET used = used + 1 WHERE code = ?", (code,))
-            conn.commit()
-            conn.close()
-            return jsonify(success=True, token="valid_session_token", remaining=max_uses - used - 1)
-        else:
-            conn.close()
-            return jsonify(success=False, message="Code has been fully used.")
-    else:
-        conn.close()
-        return jsonify(success=False, message="Invalid code.")
+    # increment used
+    c.execute("UPDATE coupons SET used = used + 1 WHERE code = ?", (code,))
+    conn.commit()
+    remaining = max_uses - (used + 1)
+    return jsonify({"success": True, "remaining": remaining})
 
-@app.route("/admin", methods=["GET", "POST"])
-def admin_panel():
-    password = request.args.get("pass", "")
-    if password != ADMIN_PASSWORD:
-        return "❌ Access Denied. Provide correct ?pass=yourpassword in URL."
+@app.route("/coupon_admin", methods=["GET"])
+def coupon_admin():
+    if request.args.get("pass") != ADMIN_PASS:
+        return "<h3>\u274c Access Denied. Provide correct ?pass=yourpassword in URL.</h3>"
+    return send_from_directory(".", "dashboard.html")
 
+@app.route("/coupon_api", methods=["GET", "POST", "DELETE"])
+def coupon_api():
     conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
+    c = conn.cursor()
 
-    if request.method == "POST":
-        new_code = request.form.get("new_code", "").strip().upper()
-        max_uses = int(request.form.get("max_uses", "1"))
-        if new_code:
-            cursor.execute("INSERT OR REPLACE INTO coupons (code, max_uses, used) VALUES (?, ?, 0)", (new_code, max_uses))
-            conn.commit()
+    if request.method == "GET":
+        c.execute("SELECT code, max_uses, used FROM coupons")
+        result = [
+            {
+                "code": row[0],
+                "max_uses": row[1],
+                "used": row[2],
+                "remaining": row[1] - row[2]
+            } for row in c.fetchall()
+        ]
+        return jsonify(result)
 
-    cursor.execute("SELECT code, max_uses, used FROM coupons")
-    rows = cursor.fetchall()
-    conn.close()
+    elif request.method == "POST":
+        data = request.get_json()
+        code = data.get("code", "").strip()
+        max_uses = int(data.get("max_uses", 5))
+        if not code:
+            return jsonify({"error": "Missing code"}), 400
 
-    html = """
-    <h2>🎟️ Coupon Admin Panel</h2>
-    <form method='POST'>
-        <input name='new_code' placeholder='New Code' required>
-        <input name='max_uses' type='number' value='5' min='1'>
-        <button type='submit'>Add / Replace</button>
-    </form>
-    <table border=1 cellpadding=8 style='margin-top:20px'>
-        <tr><th>Code</th><th>Max Uses</th><th>Used</th><th>Remaining</th></tr>
-        {% for code, max_uses, used in rows %}
-            <tr><td>{{code}}</td><td>{{max_uses}}</td><td>{{used}}</td><td>{{max_uses - used}}</td></tr>
-        {% endfor %}
-    </table>
-    """
-    return render_template_string(html, rows=rows)
+        # Replace mode: reset usage
+        c.execute("REPLACE INTO coupons (code, max_uses, used) VALUES (?, ?, 0)", (code, max_uses))
+        conn.commit()
+        return jsonify({"message": f"Code {code} added/reset."})
 
-@app.route("/", methods=["GET"])
-def home():
-    return redirect("/admin")
+    elif request.method == "DELETE":
+        data = request.get_json()
+        code = data.get("code", "").strip()
+        c.execute("DELETE FROM coupons WHERE code = ?", (code,))
+        conn.commit()
+        return jsonify({"message": f"Code {code} deleted."})
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=5000)
