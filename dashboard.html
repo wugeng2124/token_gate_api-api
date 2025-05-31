@@ -1,0 +1,75 @@
+<!-- === DASHBOARD FOR COUPON ADMIN === -->
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Coupon Admin Panel</title>
+  <style>
+    body { font-family: sans-serif; padding: 40px; max-width: 800px; margin: auto; }
+    h2 { font-size: 28px; }
+    input, button { padding: 10px; margin: 5px; font-size: 16px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 30px; }
+    th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
+    th { background: #f0f0f0; }
+    .deleteBtn { color: white; background: red; border: none; padding: 6px 12px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h2>🎟️ Coupon Admin Panel</h2>
+  <div>
+    <input id="newCode" type="text" placeholder="Code">
+    <input id="maxUses" type="number" placeholder="Max Uses" value="5">
+    <button onclick="addCoupon()">➕ Add / Replace</button>
+  </div>
+
+  <table id="couponTable">
+    <thead>
+      <tr><th>Code</th><th>Max</th><th>Used</th><th>Remaining</th><th>Delete</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    async function fetchCoupons() {
+      const res = await fetch('/coupon_api');
+      const data = await res.json();
+      const tbody = document.querySelector('#couponTable tbody');
+      tbody.innerHTML = '';
+      data.forEach(c => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${c.code}</td>
+          <td>${c.max_uses}</td>
+          <td>${c.used}</td>
+          <td>${c.remaining}</td>
+          <td><button class="deleteBtn" onclick="deleteCoupon('${c.code}')">🗑️</button></td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    async function addCoupon() {
+      const code = document.getElementById('newCode').value.trim();
+      const max = parseInt(document.getElementById('maxUses').value);
+      if (!code || isNaN(max)) return alert("⚠️ Enter valid code and number.");
+      await fetch('/coupon_api', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, max_uses: max })
+      });
+      fetchCoupons();
+    }
+
+    async function deleteCoupon(code) {
+      if (!confirm(`Delete code "${code}"?`)) return;
+      await fetch('/coupon_api', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      fetchCoupons();
+    }
+
+    fetchCoupons();
+  </script>
+</body>
+</html>
